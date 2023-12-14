@@ -1,0 +1,137 @@
+本节中，将对提出的基于clip多模态预训练模型，使用交叉注意力机制融合图文特征实现意图识别的方法进行训练与测试，在公开数据集上验证模型的性能，完成自身模型模块的消融实验，并与基线模型进行对比实验。
+
+
+本章所有的对比实验与消融实验均在搭载2张Tesla T4显卡的服务器上运行，服务器内存为56GB，显存为32GB，系统为Ubuntu，实验代码运行环境采用Docker镜像配置，其中编程语言为Python 3.8，深度学习框架采用PyTorch 2.0。具体的实验环境参数如表3-1所示。
+
+
+实验使用的是最新公开的多模态意图识别数据集(MIntRec)【1】，该数据是由清华大学于2022年整理发布的。MIntRec是一个多模态意图识别数据集，主要用于在真实多模态场景中进行意图识别，也是目前第一个用于现实世界多模态场景意图识别的基准数据集。数据来源于美剧Superstore，从中筛选了2224条高质量的多模态意图样本。每条样本包含文本、图片和音频三种模态信息以及多模态意图标签。该数据集结合多模态场景构建了新的层次化意图体系，包含两个粗粒度和20个细粒度意图类别。Inspired by human intention philosophy and goal-oriented intentions in artificial intelligence research, the data is categorized two coarse-grained intent categories: "Express emotions or attitudes" and "Achieve goals". "Express emotions and attitudes" 包含11个细粒度意图类别： Complain, Praise, Apologize, Thank, Criticize, Care, Agree, Taunt, Flaunt, Oppose, Joke. "Achieve goals" are classified into nine categories: Inform, Advise, Arrange, Introduce, Comfort, Leave, Prevent, Greet, Ask for help. 每个意图的数据量如表所示：
+
+
+
+
+
+本章实验中的评价指标主要有准确率（Accuracy）、宏观F1（Macro-F1）和微观F1（Micro-F1）得分，各指标的计算公式如下所示。准确率（Accuracy）是衡量模型精确度最直观的指标，在本实验中用于评价模型在Food101数据集和Fashion-Gen数据集的分类性能，其计算方法如公式(3-7)所示。
+
+其中TP为预测正样本，实际也为正样本的数量，TN为预测负样本，实际也为负样本的数量，FP为预测为正样本，实际为负样本的数量，FN为预测为负样本，实际为正样本的数量。
+
+
+F1-score是一种二分类指标，用来评估不均衡数据的模型精度，可以看作是模
+型精确率和召回率的一种加权平均。而在数据样本不平衡的多分类问题中，需采
+用Micro-F1或Macro-F1指标来评价性能，两者的计算方法分别如公式(3-8)和公
+式(3-9)所示。
+
+
+与准确率类似地，查准率 Precision 用于衡量在模型的预测结果为正的样本
+中，被预测正确的正样本所占的比例。其计算公式为：
+
+除此之外，召回率 Recall 表示模型正确预测的正样本在所有正样本中所占的
+比例，且召回率和查准率是一对矛盾的指标，当召回率高的时候，查准率一般很
+低；查准率高时，召回率一般很低。其计算公式为：
+
+然而，对于正负样本数量不平衡的数据集，以上评价指标均存在一定程度的
+缺陷，因为即使分类器将所有样本都预测为数量较多的类别也能得到较高的准确
+率和查准率，但这样的分类器实际上没有任何作用。对于正负样本数量不平衡的
+数据，更加合理的评价指标为 F1 得分，其计算公式为：
+
+其中𝑃为查准率 Precision；𝑅为召回率 Recall。
+
+
+
+在实验中，本章使用 Pytorch 和 HuggingFace Transformers 框架来实现部分
+baseline 和本章的模型。
+
+在模型的特征提取部分，使用clip(clip-vit-base-patch16)同时提取文本和图像特征，其中图像编码器是一个ResNet50的改进版本，文本编码器是一个使用8头注意力、12层512维度的
+Transformer。顺序注意模块也是一个8头注意力、12层512维度的Transformer。
+在所有实验中，batch-size设置为128，Adam的权重衰减设置为1e-4，学习率设置
+为1e-5。
+在模型的训练阶段，采用预训练的CLIP权重作为本章模型中图像编码器和
+文本编码器的初始权重。通过随机初始化特征融合增强模块、跨模态注意模块和
+MLP分类器中的权重。由于包含预训练的权重和随机初始化的权重的混合，而不
+是端到端训练模型，这可能会导致某些模块的欠拟合或过拟合，为此，采用多阶
+段训练策略来训练整个模型，具体分为以下两个阶段：
+（1）模块训练阶段。此时，图像编码器和文本编码器的权重被冻结，训练特
+征融合增强模块、跨模态注意模块和MLP分类器中的参数。
+
+
+The ViT-B/32 model uses a patch size of 32x32 pixels to extract image features, which means that the input image is divided into 32x32 non-overlapping patches. Each patch is flattened into a 2D vector and fed into the transformer encoder. The number of patches is then reduced by a factor of 96 to obtain a sequence of image features.
+
+The transformer encoder consists of 12 self-attention layers and 12 feed-forward layers. Each layer has a hidden dimension of 768, and the number of heads in the self-attention layer is set to 12. The output of the last feed-forward layer is then flattened into a vector, which is used as the input for the final classification layer.
+
+
+跨模态融合阶段，使用8头交叉注意力，6层512维度的Transformer。在分类阶段，受限于数据集大小，为避免出现过拟合现象，构建了2层MLP和一个softmax层简单分类网络，softmax层维度和意图标签数量保持一致，每个值代表所属对应标签的概率。其它主要的超参如表所示，超参设置主要通过观察结果和基于前人先验知识确定。
+
+
+Baselines
+
+MAG-BERT. Rahman et al. [1] integrated two nonverbal
+modalities into BERT with an additional multimodal adaptation gate
+(MAG) module. MAG can produce a position shift in the semantic
+space adaptive to acoustic and visual information. It can be flexibly
+placed between layers of BERT to receive inputs from nonverbal
+modalities.
+
+
+MulT. The Multimodal Transformer (MulT) [46] is an end-toend method to deal with non-aligned multimodal sequences. It extends the vanilla Transformer [47] to the cross-modal Transformer
+with the pairwise inter-modal attention mechanism, which helps
+to capture the adaptation knowledge between different modalities
+in the latent space.
+
+
+MulT. The Multimodal Transformer (MulT) [46] is an end-toend method to address the challenge of processing and understanding information from multiple modalities that may not be temporally synchronized or aligned, MulT extends the Transformer architecture to capture the adaptation knowledge between different modalities in the latent space.
+
+
+提出了一个多模态适应门结构（MAG），这是一种基于BERT模型的改进模型，允许模型输入非文本模态，It can be flexibly
+placed between layers of BERT. 不同模态的输入会影响词汇的意义，进而影响向量在语义空间的位置，MAG can produce a position shift 重新计算向量在语义空间的新位置。
+
+
+Trans_TAV。该模型是一种相对简单的多模态学习方法，which utilizes an early fusion approach for combining features from different modalities. 该方法可以使用BERT提取文本信息，使用Wav2vec和Faster R-CNN分别提取音频和视
+频信息。
+
+BERT（Bidirectional Encoder Representations from Transformers）是一种预训练的自然语言处理（NLP）模型，它采用了Transformer架构，并在大规模文本语料库上进行了预训练，以学习通用的语言表示。
+
+ResNet-50是一种针对图片的预训练模型，主要用于图像分类任务，也经常被用作迁移学习的基础模型，用于处理各种计算机视觉任务。
+
+为了验证本方法的有效性，选择了三个主流的多模态学习模型与本研究所提出的方法进行比较：
+
+
+其中MAG-BERT，MAG-BERT和Trans_TAV是多模态学习的代表模型，前两者基于注意力机制，综合考虑了不同模态特征的表征、对齐和融合，相对于Trans_TAV更为复杂和先进，具备更好的多模态学习能力，而Trans_TAV实现方式比较简单，但在特征表示和融合方面存在不足，是传统多模态学习方法的典型代表。BERT和ResNet-50是单模态模型，分别用于处理文本和图片，也是NLP和CV领域的代表性模型。通过和以上五个代表性模型的对比可以有效评估本研究所提出的基于多模态预训练模型和跨模态注意力机制的多模态学习方法在意图检测上的性能。在实验过程中，基准模型的参数设置主要参考默认值，为保证使用的模态统一，所有模型仅使用图片和文本模态。
+
+
+表1展示整体的对比实验结果。通过实验结果，我们可以得到以下实验结论。
+
+
+首先，从整体指标来看，本研究提出的CLIF_CMA多模态学习方法和其它代表性baseline模型相比，在意图检测数据集上表现了出色的性能，从而验证了该方法的有效性。
+其次，从模态来看，多模态模型的结果普遍优于单模态模型的结果，说明随着输入模态的增加可以提供更多的有效特征，这表明了融合多模态信息进行意图检测的必要性。此外，就单个模态而言，文本模态取得了最佳的性能，这表明文本在意图检测中包含了比图片更多的意图识别信息，而且得益于大规模预训练语言模型的发展，文本可以通过迁移学习方法获得更好的语义表示。单独使用图像模态效果最差，这可能是因为图像中的特征比较分散，噪声较多，导致模型很难从图像中获取到和意图相关的有效特征。
+最后，从多模态模型来看，Trans_TAV模型效果最差，这说明在多模态学习中，需要设计合理的多模态表示和融合方法，才能有效利用多模态信息，从而提高模型的性能。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
