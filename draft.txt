@@ -7,7 +7,7 @@
 
 
 实验使用的是最新公开的多模态意图识别数据集(MIntRec)【1】，该数据是由清华大学于2022年整理发布的。MIntRec是一个多模态意图识别数据集，主要用于在真实多模态场景中进行意图识别，也是目前第一个用于现实世界多模态场景意图识别的基准数据集。数据来源于美剧Superstore，从中筛选了2224条高质量的多模态意图样本。每条样本包含文本、图片和音频三种模态信息以及多模态意图标签。该数据集结合多模态场景构建了新的层次化意图体系，包含两个粗粒度和20个细粒度意图类别。Inspired by human intention philosophy and goal-oriented intentions in artificial intelligence research, the data is categorized two coarse-grained intent categories: "Express emotions or attitudes" and "Achieve goals". "Express emotions and attitudes" 包含11个细粒度意图类别： Complain, Praise, Apologize, Thank, Criticize, Care, Agree, Taunt, Flaunt, Oppose, Joke. "Achieve goals" are classified into nine categories: Inform, Advise, Arrange, Introduce, Comfort, Leave, Prevent, Greet, Ask for help. The statistics of these datasets are
-given in Table 2, we split training, validation, and testing sets in 7:1:2. The detailed statistics are shown in Table 3
+given in Table 2, we split training, validation, and testing sets in 6:2:2. The detailed statistics are shown in Table 3
 
 
 表
@@ -85,6 +85,8 @@ The transformer encoder consists of 12 self-attention layers and 12 feed-forward
 
 
 
+
+
 MAG-BERT. Rahman et al. [1] integrated two nonverbal
 modalities into BERT with an additional multimodal adaptation gate
 (MAG) module. MAG can produce a position shift in the semantic
@@ -137,18 +139,23 @@ CLIP多模态预训练模型包含文本和图像编码器，文本编码器主�
 通过实验发现，ResNet和ViT系列表现相近，两者都是计算机视觉领域主流的预训练模型。相较于ViT-B-32,ViT-B-16的准确率和F1值分别提高了0.80和0.99百分点,性能表现最好，这是由于块的大小对模型性能产生影响,一般情况，更小的块可以捕捉到更细粒度的图像特征，但实际效果主要depends on the characteristics of specific task and dataset，由于该数据集的规模不大、多样性不足,难以有效判断2个模型的优劣。 
 
 
+
+消融实验
+
 为验证本研究中各模块对基于图文的意图检测的性能提升效果,分别针对不同类型数据，特征表征方法和融合方法三部分在相同数据集上进行消融实验研究。实验结果如表所示，其中“-t”表示移除文本数据，使用空字符串代替，“-p”表示移除图片数据，使用空白图片代替， “-CLIP”表示移除CLIP模块，使用Bert和ResNet代替分别提取文本和图片特征，“-CMA”表示移除交叉注意力特征融合模块，使用concat方式融合特征，
 
 
 从前两行可以看出，去除文本后，仅使用图片数据的效果最差，准确率和F1得分分别只有0.2和0.4，这说明文本特征在意图识别中起着重要作用，而图像信息的作用主要是对文本信息的扩展，仅依赖于视觉特征的意图检测是难以投入到现实使用的。与之相比，仅使用文本信息数据进行意图检测时的准确率超过了0.7，在性能上并没有比多模态基线模型落后太多，这说明本研究使用的文本特征和用户想要表达的想法相关度较高。从第三行可以看出，使用Bert和ResNet代替clip模型后效果有所下降，这种多模态学习方式和Trans_TAV模型类似，在特征提取和表征时没有考虑模态之间的相关性，在后续阶段难以准确地融合不同输入所表达的信息。从第四行可以看出，使用简单的拼接方式融合多模态特征，在性能上甚至低于仅仅使用文本模态的BERT模型。这就意味着，在文本信息的基础上引入视觉信息虽然使得模型拥有了更加丰富的特征，但也产生了非常多的冗余信息甚至是噪声，单纯依靠对多模态信息的空间操作进行融合的方法难以直接获取两种模态内在的相互作用。所以，如果不能妥善处理额外模态的信息，反而会对模型的性能产生反作用。
 
 
+case分析
 
 我们使用混淆矩阵直观展示了每个意图的预测效果，以进一步分析测试数据中预测错误的案例，如图1所示，其中横轴和纵轴分别代表预测标签和真实标签，并用颜色表示预测概率，对角线是预测标签等于真实标签，颜色越深表示该意图下准确率越高。
 
 整体来看，该模型在大多数类别中表现出了较高的准确率，但在不同类别的意图上性能也有明显区别，有的意图表达模式相对固定，内容比较具体，例如表扬、感谢、道歉、同意和问候等，模型在这几类上表现出了更优秀的性能。然而，在一些复杂场景下，例如炫耀、告知和嘲讽等，模型表现一般，这可能是因为这些意图的表达方式比较多样化，而且内容比较抽象，要合理地推断出说话人的真实意图，可能需要音频和动作等额外模态信息。从混淆矩阵中可以看出模型容易混淆告知与安排、抱怨与反对，这些类别本身具有很高的相似性，容易造成误判，对于这些意图可能依赖上下文信息才能实现更准确地判断。这些问题也表明复杂场景下的多模态意图检测任务仍有巨大的改进空间。
 
 
+结论
 
 本文主要从图像和文本两种不同的模态出发，探索了图文信息融合技术在多媒体意图检测中的应用。首先，本研究设计了基于多模态预训练模型和交叉注意力机制的多模态学习方法，以实现更准确的意图检测。为了更好地综合利用这两种不同模态的信息，将意图检测任务分为多模态特征表征和融合两部分。在特征表征部分，我们提出使用CLIP多模态预训练同时提取文本和图像特征，并在微调后自动实现对齐，赋予了模型在少量样本下的学习能力。在融合部分基于交叉注意力机制，以有效地融合不同模型的信息。然后，通过和基线模型在相同数据集上进行对比实验证明了该模型的有效性。接着通过消融实验,验证各模块的有效性。最后分析了模型在不同意图标签上的具体表现。由于数据资源和硬件设备的限制，本研究仍有许多不足之处，有进一步改进的空间。本文仅使用了MIntRec数据集的文本部分和视觉部分，后续研究将加入视频中的音频模态,以确保数据的完整性,进一步提升多模态意图检测的准确率和泛化能力。同时，在多媒体中普遍存在缺少部分模态数据的情况，如何解决输入数据中模态缺失问题对于实际的模型落地具有重要意义。
 
